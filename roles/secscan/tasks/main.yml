@@ -4,11 +4,9 @@
 # ======================================================================
 
 - name: Create results directory
-  file:
-    path: "/tmp/secscan_results_{{ inventory_hostname }}"
-    state: directory
-    mode: '0755'
+  raw: mkdir -p /tmp/secscan_results_{{ inventory_hostname }}
   register: results_dir
+  changed_when: false
 
 - name: 1. PATCHES & KERNEL
   shell: |

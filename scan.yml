@@ -22,9 +22,8 @@
       ignore_errors: yes
 
     - name: Dọn dẹp thư mục tạm
-      file:
-        path: "/tmp/secscan_results_{{ inventory_hostname }}"
-        state: absent
+      raw: rm -rf /tmp/secscan_results_{{ inventory_hostname }}
+      changed_when: false
       ignore_errors: yes
 
 # Tổng hợp kết quả trên controller
