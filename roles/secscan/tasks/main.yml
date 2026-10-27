@@ -10,6 +10,7 @@
 - name: Create results directory
   raw: mkdir -p {{ results_path }}
   changed_when: false
+  ignore_errors: yes
 
 - name: 1. PATCHES & KERNEL
   raw: |
@@ -24,6 +25,7 @@
       apt-get -s upgrade 2>/dev/null | grep -E '^Inst ' | head -10
     } > {{ results_path }}/1_patches.txt
   changed_when: false
+  ignore_errors: yes
 
 - name: 2. ACCOUNTS
   raw: |
@@ -38,6 +40,7 @@
       awk -F: '$2 == "" {print $1}' /etc/shadow 2>/dev/null
     } > {{ results_path }}/2_accounts.txt
   changed_when: false
+  ignore_errors: yes
 
 - name: 3. SSH CONFIG
   raw: |
@@ -51,17 +54,19 @@
       done
     } > {{ results_path }}/3_ssh.txt
   changed_when: false
+  ignore_errors: yes
 
 - name: 4. SUDO
   raw: |
     {
       echo "=== Sudoers ==="
-      cat /etc/sudoers 2>/dev/null | grep -v '^\s*#' | grep -v '^\s*$'
+      cat /etc/sudoers 2>/dev/null | grep -v '^\s*#' | grep -v '^\s*$' || echo "OK"
       echo ""
       echo "=== NOPASSWD rules ==="
-      grep 'NOPASSWD' /etc/sudoers /etc/sudoers.d/* 2>/dev/null
+      grep 'NOPASSWD' /etc/sudoers /etc/sudoers.d/* 2>/dev/null || echo "OK"
     } > {{ results_path }}/4_sudo.txt
   changed_when: false
+  ignore_errors: yes
 
 - name: 5. FIREWALL
   raw: |
@@ -76,20 +81,22 @@
       ss -tlnp 2>/dev/null | grep -E ':6379|:27017|:3306|:5432'
     } > {{ results_path }}/5_firewall.txt
   changed_when: false
+  ignore_errors: yes
 
 - name: 6. CRON
   raw: |
     {
       echo "=== /etc/crontab ==="
-      grep -v '^\s*#' /etc/crontab 2>/dev/null
+      grep -v '^\s*#' /etc/crontab 2>/dev/null || echo "OK"
       echo ""
       echo "=== /etc/cron.d/* ==="
-      find /etc/cron.d -type f 2>/dev/null -exec grep -v '^\s*#' {} +
+      find /etc/cron.d -type f 2>/dev/null -exec grep -v '^\s*#' {} + || echo "OK"
       echo ""
       echo "=== Cron lạ ==="
       (cat /etc/crontab /etc/cron.d/* /var/spool/cron/crontabs/* 2>/dev/null | grep -E 'curl|wget|python|bash -c|nc |ncat') || echo "OK"
     } > {{ results_path }}/6_cron.txt
   changed_when: false
+  ignore_errors: yes
 
 - name: 7. PROCESS
   raw: |
@@ -108,6 +115,7 @@
       ps aux --sort=-%cpu | head -11
     } > {{ results_path }}/7_process.txt
   changed_when: false
+  ignore_errors: yes
 
 - name: 8. FILES (Hidden, SUID)
   raw: |
@@ -119,6 +127,7 @@
       find / -xdev -type f \( -perm -04000 -o -perm -02000 \) 2>/dev/null | head -50
     } > {{ results_path }}/8_files.txt
   changed_when: false
+  ignore_errors: yes
 
 - name: 9. CHANGED FILES (7 days)
   raw: |
@@ -130,20 +139,22 @@
       find /root /home -type f -mtime -7 2>/dev/null | head -50
     } > {{ results_path }}/9_changed_files.txt
   changed_when: false
+  ignore_errors: yes
 
 - name: 10. AUTH LOGS
   raw: |
     {
       echo "=== SSH login ==="
-      grep 'Accepted' /var/log/auth.log 2>/dev/null | tail -20
+      grep 'Accepted' /var/log/auth.log 2>/dev/null | tail -20 || echo "OK"
       echo ""
       echo "=== Brute-force ==="
-      grep 'Failed password' /var/log/auth.log* 2>/dev/null | awk '{print $11}' | sort | uniq -c | sort -rn | head -20
+      grep 'Failed password' /var/log/auth.log* 2>/dev/null | awk '{print $11}' | sort | uniq -c | sort -rn | head -20 || echo "OK"
       echo ""
       echo "=== Root login ==="
-      grep 'Accepted.*root' /var/log/auth.log 2>/dev/null | tail -10
+      grep 'Accepted.*root' /var/log/auth.log 2>/dev/null | tail -10 || echo "OK"
     } > {{ results_path }}/10_auth.txt
   changed_when: false
+  ignore_errors: yes
 
 - name: 11. BASH HISTORY
   raw: |
@@ -157,6 +168,7 @@
       done
     } > {{ results_path }}/11_bash_history.txt
   changed_when: false
+  ignore_errors: yes
 
 - name: 12. PERSISTENCE (Backdoor)
   raw: |
@@ -173,6 +185,7 @@
       [ -f /etc/rc.local ] && grep -v '^\s*#' /etc/rc.local || echo "OK"
     } > {{ results_path }}/12_persistence.txt
   changed_when: false
+  ignore_errors: yes
 
 - name: 13. KNOWN_HOSTS
   raw: |
@@ -182,19 +195,21 @@
       done
     } > {{ results_path }}/13_known_hosts.txt
   changed_when: false
+  ignore_errors: yes
 
 - name: 14. KERNEL MODULES
   raw: |
     {
       echo "=== Loaded modules ==="
-      lsmod | head -50
+      lsmod | head -50 || echo "OK"
       echo ""
       echo "=== Modules lạ ==="
       for m in $(lsmod | tail -n +2 | awk '{print $1}'); do
         [ ! -f "/lib/modules/$(uname -r)/kernel/$m.ko" ] && [ ! -f "/lib/modules/$(uname -r)/kernel/$m.ko.xz" ] && echo "Module lạ: $m"
-      done
+      done || echo "OK"
     } > {{ results_path }}/14_kernel.txt
   changed_when: false
+  ignore_errors: yes
 
 - name: 15. /etc/hosts & DNS
   raw: |
@@ -206,6 +221,7 @@
       cat /etc/resolv.conf | head -20
     } > {{ results_path }}/15_hosts.txt
   changed_when: false
+  ignore_errors: yes
 
 - name: Log results location
   debug:
