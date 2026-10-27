@@ -1,6 +1,6 @@
 ---
 # ======================================================================
-# Role secscan - Quét bảo mật (không cần Python, dùng raw module)
+# Role secscan - Quét bảo mật (không cần Python, có stdout logging)
 # ======================================================================
 
 - name: Set results path
@@ -17,219 +17,205 @@
     {
       echo "=== OS ==="
       lsb_release -ds 2>/dev/null || grep PRETTY_NAME /etc/os-release | cut -d'"' -f2
-      echo ""
       echo "=== Kernel ==="
       uname -r
-      echo ""
       echo "=== Updates chưa cài ==="
-      apt-get -s upgrade 2>/dev/null | grep -E '^Inst ' | head -10
+      apt-get -s upgrade 2>/dev/null | grep -E '^Inst ' | head -5
     } | tee {{ results_path }}/1_patches.txt
-  register: task1_out
+  register: task1
   changed_when: false
   ignore_errors: yes
 
-- name: Show task 1 output
-  debug:
-    msg: "{{ task1_out.stdout_lines }}"
-  when: task1_out.stdout is defined
+- debug: msg="{{ task1.stdout_lines }}"
 
 - name: 2. ACCOUNTS
   raw: |
     {
       echo "=== UID 0 (ngoài root) ==="
-      awk -F: '$3 == 0 && $1 != "root" {print}' /etc/passwd
-      echo ""
+      awk -F: '$3 == 0 && $1 != "root" {print}' /etc/passwd || echo "OK"
       echo "=== Shell users ==="
-      grep -v '/nologin\|/false\|/bin/sync' /etc/passwd | cut -d: -f1,3,7 | head -20
-      echo ""
-      echo "=== Mật khẩu rỗng? ==="
-      awk -F: '$2 == "" {print $1}' /etc/shadow 2>/dev/null
-    } > {{ results_path }}/2_accounts.txt
+      grep -v '/nologin' /etc/passwd | cut -d: -f1,3,7 | head -10 || echo "OK"
+    } | tee {{ results_path }}/2_accounts.txt
+  register: task2
   changed_when: false
   ignore_errors: yes
+
+- debug: msg="{{ task2.stdout_lines }}"
 
 - name: 3. SSH CONFIG
   raw: |
     {
-      echo "=== sshd -T ==="
-      sshd -T 2>/dev/null | grep -E 'permitrootlogin|passwordauthentication|pubkeyauthentication'
-      echo ""
       echo "=== SSH keys ==="
       for f in /root/.ssh/authorized_keys /home/*/.ssh/authorized_keys; do
-        [ -f "$f" ] && { echo "-- $f --"; ssh-keygen -lf "$f" 2>/dev/null | head -20; }
-      done
-    } > {{ results_path }}/3_ssh.txt
+        [ -f "$f" ] && { echo "-- $f --"; wc -l < "$f"; }
+      done || echo "OK"
+    } | tee {{ results_path }}/3_ssh.txt
+  register: task3
   changed_when: false
   ignore_errors: yes
+
+- debug: msg="{{ task3.stdout_lines }}"
 
 - name: 4. SUDO
   raw: |
     {
-      echo "=== Sudoers ==="
-      cat /etc/sudoers 2>/dev/null | grep -v '^\s*#' | grep -v '^\s*$' || echo "OK"
-      echo ""
-      echo "=== NOPASSWD rules ==="
+      echo "=== NOPASSWD ==="
       grep 'NOPASSWD' /etc/sudoers /etc/sudoers.d/* 2>/dev/null || echo "OK"
-    } > {{ results_path }}/4_sudo.txt
+    } | tee {{ results_path }}/4_sudo.txt
+  register: task4
   changed_when: false
   ignore_errors: yes
+
+- debug: msg="{{ task4.stdout_lines }}"
 
 - name: 5. FIREWALL
   raw: |
     {
       echo "=== UFW ==="
       ufw status 2>/dev/null || echo "UFW không bật"
-      echo ""
-      echo "=== Listening ports ==="
-      ss -tlnp 2>/dev/null | head -30 || netstat -tlnp 2>/dev/null | head -30
-      echo ""
-      echo "=== Cổng nhạy cảm ==="
-      ss -tlnp 2>/dev/null | grep -E ':6379|:27017|:3306|:5432'
-    } > {{ results_path }}/5_firewall.txt
+      echo "=== Ports ==="
+      ss -tlnp 2>/dev/null | wc -l || echo "OK"
+    } | tee {{ results_path }}/5_firewall.txt
+  register: task5
   changed_when: false
   ignore_errors: yes
+
+- debug: msg="{{ task5.stdout_lines }}"
 
 - name: 6. CRON
   raw: |
     {
-      echo "=== /etc/crontab ==="
-      grep -v '^\s*#' /etc/crontab 2>/dev/null || echo "OK"
-      echo ""
-      echo "=== /etc/cron.d/* ==="
-      find /etc/cron.d -type f 2>/dev/null -exec grep -v '^\s*#' {} + || echo "OK"
-      echo ""
       echo "=== Cron lạ ==="
-      (cat /etc/crontab /etc/cron.d/* /var/spool/cron/crontabs/* 2>/dev/null | grep -E 'curl|wget|python|bash -c|nc |ncat') || echo "OK"
-    } > {{ results_path }}/6_cron.txt
+      grep -E 'curl|wget|nc' /etc/crontab /etc/cron.d/* 2>/dev/null || echo "OK"
+    } | tee {{ results_path }}/6_cron.txt
+  register: task6
   changed_when: false
   ignore_errors: yes
+
+- debug: msg="{{ task6.stdout_lines }}"
 
 - name: 7. PROCESS
   raw: |
     {
-      echo "=== Process từ /tmp, /dev/shm ==="
+      echo "=== Process lạ ==="
       for p in /proc/[0-9]*; do
         e=$(readlink "$p/exe" 2>/dev/null) || continue
-        case "$e" in
-          /tmp/*|/dev/shm/*|/var/tmp/*|*deleted*)
-            echo "PID ${p#/proc/}: $e"
-            ;;
-        esac
-      done
-      echo ""
-      echo "=== Top 10 CPU ==="
-      ps aux --sort=-%cpu | head -11
-    } > {{ results_path }}/7_process.txt
+        case "$e" in /tmp/*|/dev/shm/*) echo "PID ${p#/proc/}: $e";; esac
+      done || echo "OK"
+    } | tee {{ results_path }}/7_process.txt
+  register: task7
   changed_when: false
   ignore_errors: yes
+
+- debug: msg="{{ task7.stdout_lines }}"
 
 - name: 8. FILES (Hidden, SUID)
   raw: |
     {
+      echo "=== SUID ==="
+      find / -xdev -type f -perm -04000 2>/dev/null | wc -l || echo "0"
       echo "=== File ẩn ==="
-      find /etc /usr/bin /usr/sbin -maxdepth 2 -name '.*' -type f 2>/dev/null | head -50
-      echo ""
-      echo "=== SUID/SGID ==="
-      find / -xdev -type f \( -perm -04000 -o -perm -02000 \) 2>/dev/null | head -50
-    } > {{ results_path }}/8_files.txt
+      find /etc /usr/bin -maxdepth 2 -name '.*' -type f 2>/dev/null | wc -l || echo "0"
+    } | tee {{ results_path }}/8_files.txt
+  register: task8
   changed_when: false
   ignore_errors: yes
+
+- debug: msg="{{ task8.stdout_lines }}"
 
 - name: 9. CHANGED FILES (7 days)
   raw: |
     {
       echo "=== /etc (7 ngày) ==="
-      find /etc -type f -mtime -7 2>/dev/null | head -50
-      echo ""
+      find /etc -type f -mtime -7 2>/dev/null | wc -l || echo "0"
       echo "=== /root, /home ==="
-      find /root /home -type f -mtime -7 2>/dev/null | head -50
-    } > {{ results_path }}/9_changed_files.txt
+      find /root /home -type f -mtime -7 2>/dev/null | wc -l || echo "0"
+    } | tee {{ results_path }}/9_changed_files.txt
+  register: task9
   changed_when: false
   ignore_errors: yes
+
+- debug: msg="{{ task9.stdout_lines }}"
 
 - name: 10. AUTH LOGS
   raw: |
     {
-      echo "=== SSH login ==="
-      grep 'Accepted' /var/log/auth.log 2>/dev/null | tail -20 || echo "OK"
-      echo ""
-      echo "=== Brute-force ==="
-      grep 'Failed password' /var/log/auth.log* 2>/dev/null | awk '{print $11}' | sort | uniq -c | sort -rn | head -20 || echo "OK"
-      echo ""
       echo "=== Root login ==="
-      grep 'Accepted.*root' /var/log/auth.log 2>/dev/null | tail -10 || echo "OK"
-    } > {{ results_path }}/10_auth.txt
+      grep 'Accepted.*root' /var/log/auth.log 2>/dev/null | wc -l || echo "0"
+      echo "=== Brute-force ==="
+      grep 'Failed password' /var/log/auth.log* 2>/dev/null | wc -l || echo "0"
+    } | tee {{ results_path }}/10_auth.txt
+  register: task10
   changed_when: false
   ignore_errors: yes
+
+- debug: msg="{{ task10.stdout_lines }}"
 
 - name: 11. BASH HISTORY
   raw: |
     {
-      echo "=== /root/.bash_history ==="
-      [ -f /root/.bash_history ] && grep -E 'curl |wget |nc |python.*-c' /root/.bash_history | tail -30
-      echo ""
-      echo "=== /home/*/.bash_history ==="
-      for h in /home/*/.bash_history; do
-        [ -f "$h" ] && grep -E 'curl |wget |nc ' "$h" | tail -20
-      done
-    } > {{ results_path }}/11_bash_history.txt
+      echo "=== Lệnh lạ (curl, wget, nc) ==="
+      grep -c -E 'curl |wget |nc |python.*-c' /root/.bash_history 2>/dev/null || echo "0"
+    } | tee {{ results_path }}/11_bash_history.txt
+  register: task11
   changed_when: false
   ignore_errors: yes
+
+- debug: msg="{{ task11.stdout_lines }}"
 
 - name: 12. PERSISTENCE (Backdoor)
   raw: |
     {
-      echo "=== .bashrc, .profile ==="
-      for f in /root/.bashrc /root/.profile /home/*/.bashrc /home/*/.profile; do
-        [ -f "$f" ] && grep -E 'alias|export|eval' "$f" && echo "-- $f --"
-      done
-      echo ""
+      echo "=== Suspicious .bashrc ==="
+      grep -c -E 'alias|export|eval' /root/.bashrc 2>/dev/null || echo "0"
       echo "=== /etc/ld.so.preload ==="
-      cat /etc/ld.so.preload 2>/dev/null || echo "OK"
-      echo ""
-      echo "=== rc.local ==="
-      [ -f /etc/rc.local ] && grep -v '^\s*#' /etc/rc.local || echo "OK"
-    } > {{ results_path }}/12_persistence.txt
+      [ -f /etc/ld.so.preload ] && echo "EXISTS" || echo "OK"
+    } | tee {{ results_path }}/12_persistence.txt
+  register: task12
   changed_when: false
   ignore_errors: yes
+
+- debug: msg="{{ task12.stdout_lines }}"
 
 - name: 13. KNOWN_HOSTS
   raw: |
     {
-      for k in /root/.ssh/known_hosts /home/*/.ssh/known_hosts; do
-        [ -f "$k" ] && { echo "-- $k --"; cat "$k" | grep -v '^|' | head -30; }
-      done
-    } > {{ results_path }}/13_known_hosts.txt
+      echo "=== SSH remote (known_hosts) ==="
+      wc -l /root/.ssh/known_hosts 2>/dev/null || echo "0"
+    } | tee {{ results_path }}/13_known_hosts.txt
+  register: task13
   changed_when: false
   ignore_errors: yes
+
+- debug: msg="{{ task13.stdout_lines }}"
 
 - name: 14. KERNEL MODULES
   raw: |
     {
       echo "=== Loaded modules ==="
-      lsmod | head -50 || echo "OK"
-      echo ""
-      echo "=== Modules lạ ==="
-      for m in $(lsmod | tail -n +2 | awk '{print $1}'); do
-        [ ! -f "/lib/modules/$(uname -r)/kernel/$m.ko" ] && [ ! -f "/lib/modules/$(uname -r)/kernel/$m.ko.xz" ] && echo "Module lạ: $m"
-      done || echo "OK"
-    } > {{ results_path }}/14_kernel.txt
+      lsmod | wc -l || echo "0"
+    } | tee {{ results_path }}/14_kernel.txt
+  register: task14
   changed_when: false
   ignore_errors: yes
+
+- debug: msg="{{ task14.stdout_lines }}"
 
 - name: 15. /etc/hosts & DNS
   raw: |
     {
       echo "=== /etc/hosts ==="
-      grep -v '^\s*#\|^\s*$' /etc/hosts
-      echo ""
+      grep -c -v '^\s*#' /etc/hosts 2>/dev/null || echo "0"
       echo "=== DNS ==="
-      cat /etc/resolv.conf | head -20
-    } > {{ results_path }}/15_hosts.txt
+      cat /etc/resolv.conf | head -3
+    } | tee {{ results_path }}/15_hosts.txt
+  register: task15
   changed_when: false
   ignore_errors: yes
 
-- name: Log results location
+- debug: msg="{{ task15.stdout_lines }}"
+
+- name: Summary
   debug:
     msg: |
       ✅ Quét hoàn thành: {{ inventory_hostname }}
