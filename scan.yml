@@ -6,7 +6,7 @@
 
 - name: HCI Security Scan
   hosts: hci
-  gather_facts: yes
+  gather_facts: no
   tasks:
     - name: Copy hci_scan.sh tới remote
       copy:
