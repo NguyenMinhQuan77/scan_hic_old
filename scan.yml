@@ -1,57 +1,31 @@
 ---
 # ======================================================================
-# scan.yml - Playbook chính: chạy quét HCI
-# Chạy: ansible-playbook scan.yml
+# scan.yml - Playbook chính: chạy quét HCI bằng Ansible roles
+# Chạy: ansible-playbook scan.yml -i inventory/hosts.ini
+# Không cần Python (chỉ shell commands)
 # ======================================================================
 
 - name: HCI Security Scan
   hosts: hci
-  gather_facts: yes
-  tasks:
-    - name: Copy hci_scan.sh tới remote
-      copy:
-        src: hci_scan.sh
-        dest: /tmp/hci_scan.sh
-        mode: '0755'
-      register: script_copy
+  gather_facts: no
+  roles:
+    - secscan
 
-    - name: Chạy quét
-      shell: bash /tmp/hci_scan.sh
-      register: scan_result
-      changed_when: false
-
-    - name: Copy scan results to /tmp/ansible_results (dễ lấy)
-      shell: |
-        mkdir -p /tmp/ansible_results
-        SCAN_DIR=$(ls -td /tmp/hci_scan_* 2>/dev/null | head -1)
-        if [ -n "$SCAN_DIR" ]; then
-          cp -r "$SCAN_DIR"/* /tmp/ansible_results/ 2>/dev/null || true
-          echo "✅ Copied to /tmp/ansible_results"
-        else
-          echo "⚠️ No scan results found"
-        fi
-      changed_when: false
-      ignore_errors: yes
-
-    - name: Fetch từ /tmp/ansible_results
+  post_tasks:
+    - name: Fetch results về controller
       synchronize:
-        src: "/tmp/ansible_results/"
+        src: "/tmp/secscan_results_{{ inventory_hostname }}/"
         dest: "{{ playbook_dir }}/results/{{ inventory_hostname }}/"
         mode: pull
         delete: no
         archive: yes
       ignore_errors: yes
 
-    - name: Dọn dẹp thư mục tạm trên remote
-      shell: rm -rf /tmp/hci_scan_*
-      changed_when: false
+    - name: Dọn dẹp thư mục tạm
+      file:
+        path: "/tmp/secscan_results_{{ inventory_hostname }}"
+        state: absent
       ignore_errors: yes
-
-    - name: Log kết quả
-      debug:
-        msg: |
-          ✅ Quét hoàn thành: {{ inventory_hostname }}
-          Thư mục kết quả: /tmp/hci_scan_{{ inventory_hostname }}_*/
 
 # Tổng hợp kết quả trên controller
 - name: Summary

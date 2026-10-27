@@ -1,0 +1,213 @@
+---
+# ======================================================================
+# Role secscan - Quét bảo mật (không cần Python)
+# ======================================================================
+
+- name: Create results directory
+  file:
+    path: "/tmp/secscan_results_{{ inventory_hostname }}"
+    state: directory
+    mode: '0755'
+  register: results_dir
+
+- name: 1. PATCHES & KERNEL
+  shell: |
+    {
+      echo "=== OS ==="
+      lsb_release -ds 2>/dev/null || grep PRETTY_NAME /etc/os-release | cut -d'"' -f2
+      echo ""
+      echo "=== Kernel ==="
+      uname -r
+      echo ""
+      echo "=== Updates chưa cài ==="
+      apt-get -s upgrade 2>/dev/null | grep -E '^Inst ' | head -10
+    } > {{ results_dir.path }}/1_patches.txt
+  changed_when: false
+
+- name: 2. ACCOUNTS
+  shell: |
+    {
+      echo "=== UID 0 (ngoài root) ==="
+      awk -F: '$3 == 0 && $1 != "root" {print}' /etc/passwd
+      echo ""
+      echo "=== Shell users ==="
+      grep -v '/nologin\|/false\|/bin/sync' /etc/passwd | cut -d: -f1,3,7 | head -20
+      echo ""
+      echo "=== Mật khẩu rỗng? ==="
+      awk -F: '$2 == "" {print $1}' /etc/shadow 2>/dev/null
+    } > {{ results_dir.path }}/2_accounts.txt
+  changed_when: false
+
+- name: 3. SSH CONFIG
+  shell: |
+    {
+      echo "=== sshd -T ==="
+      sshd -T 2>/dev/null | grep -E 'permitrootlogin|passwordauthentication|pubkeyauthentication'
+      echo ""
+      echo "=== SSH keys ==="
+      for f in /root/.ssh/authorized_keys /home/*/.ssh/authorized_keys; do
+        [ -f "$f" ] && { echo "-- $f --"; ssh-keygen -lf "$f" 2>/dev/null | head -20; }
+      done
+    } > {{ results_dir.path }}/3_ssh.txt
+  changed_when: false
+
+- name: 4. SUDO
+  shell: |
+    {
+      echo "=== Sudoers ==="
+      cat /etc/sudoers 2>/dev/null | grep -v '^\s*#' | grep -v '^\s*$'
+      echo ""
+      echo "=== NOPASSWD rules ==="
+      grep 'NOPASSWD' /etc/sudoers /etc/sudoers.d/* 2>/dev/null
+    } > {{ results_dir.path }}/4_sudo.txt
+  changed_when: false
+
+- name: 5. FIREWALL
+  shell: |
+    {
+      echo "=== UFW ==="
+      ufw status 2>/dev/null || echo "UFW không bật"
+      echo ""
+      echo "=== Listening ports ==="
+      ss -tlnp 2>/dev/null | head -30 || netstat -tlnp 2>/dev/null | head -30
+      echo ""
+      echo "=== Cổng nhạy cảm ==="
+      ss -tlnp 2>/dev/null | grep -E ':6379|:27017|:3306|:5432'
+    } > {{ results_dir.path }}/5_firewall.txt
+  changed_when: false
+
+- name: 6. CRON
+  shell: |
+    {
+      echo "=== /etc/crontab ==="
+      grep -v '^\s*#' /etc/crontab 2>/dev/null
+      echo ""
+      echo "=== /etc/cron.d/* ==="
+      find /etc/cron.d -type f 2>/dev/null -exec grep -v '^\s*#' {} +
+      echo ""
+      echo "=== Cron lạ ==="
+      (cat /etc/crontab /etc/cron.d/* /var/spool/cron/crontabs/* 2>/dev/null | grep -E 'curl|wget|python|bash -c|nc |ncat') || echo "OK"
+    } > {{ results_dir.path }}/6_cron.txt
+  changed_when: false
+
+- name: 7. PROCESS
+  shell: |
+    {
+      echo "=== Process từ /tmp, /dev/shm ==="
+      for p in /proc/[0-9]*; do
+        e=$(readlink "$p/exe" 2>/dev/null) || continue
+        case "$e" in
+          /tmp/*|/dev/shm/*|/var/tmp/*|*deleted*)
+            echo "PID ${p#/proc/}: $e"
+            ;;
+        esac
+      done
+      echo ""
+      echo "=== Top 10 CPU ==="
+      ps aux --sort=-%cpu | head -11
+    } > {{ results_dir.path }}/7_process.txt
+  changed_when: false
+
+- name: 8. FILES (Hidden, SUID)
+  shell: |
+    {
+      echo "=== File ẩn ==="
+      find /etc /usr/bin /usr/sbin -maxdepth 2 -name '.*' -type f 2>/dev/null | head -50
+      echo ""
+      echo "=== SUID/SGID ==="
+      find / -xdev -type f \( -perm -04000 -o -perm -02000 \) 2>/dev/null | head -50
+    } > {{ results_dir.path }}/8_files.txt
+  changed_when: false
+
+- name: 9. CHANGED FILES (7 days)
+  shell: |
+    {
+      echo "=== /etc (7 ngày) ==="
+      find /etc -type f -mtime -7 2>/dev/null | head -50
+      echo ""
+      echo "=== /root, /home ==="
+      find /root /home -type f -mtime -7 2>/dev/null | head -50
+    } > {{ results_dir.path }}/9_changed_files.txt
+  changed_when: false
+
+- name: 10. AUTH LOGS
+  shell: |
+    {
+      echo "=== SSH login ==="
+      grep 'Accepted' /var/log/auth.log 2>/dev/null | tail -20
+      echo ""
+      echo "=== Brute-force ==="
+      grep 'Failed password' /var/log/auth.log* 2>/dev/null | awk '{print $11}' | sort | uniq -c | sort -rn | head -20
+      echo ""
+      echo "=== Root login ==="
+      grep 'Accepted.*root' /var/log/auth.log 2>/dev/null | tail -10
+    } > {{ results_dir.path }}/10_auth.txt
+  changed_when: false
+
+- name: 11. BASH HISTORY
+  shell: |
+    {
+      echo "=== /root/.bash_history ==="
+      [ -f /root/.bash_history ] && grep -E 'curl |wget |nc |python.*-c' /root/.bash_history | tail -30
+      echo ""
+      echo "=== /home/*/.bash_history ==="
+      for h in /home/*/.bash_history; do
+        [ -f "$h" ] && grep -E 'curl |wget |nc ' "$h" | tail -20
+      done
+    } > {{ results_dir.path }}/11_bash_history.txt
+  changed_when: false
+
+- name: 12. PERSISTENCE (Backdoor)
+  shell: |
+    {
+      echo "=== .bashrc, .profile ==="
+      for f in /root/.bashrc /root/.profile /home/*/.bashrc /home/*/.profile; do
+        [ -f "$f" ] && grep -E 'alias|export|eval' "$f" && echo "-- $f --"
+      done
+      echo ""
+      echo "=== /etc/ld.so.preload ==="
+      cat /etc/ld.so.preload 2>/dev/null || echo "OK"
+      echo ""
+      echo "=== rc.local ==="
+      [ -f /etc/rc.local ] && grep -v '^\s*#' /etc/rc.local || echo "OK"
+    } > {{ results_dir.path }}/12_persistence.txt
+  changed_when: false
+
+- name: 13. KNOWN_HOSTS
+  shell: |
+    {
+      for k in /root/.ssh/known_hosts /home/*/.ssh/known_hosts; do
+        [ -f "$k" ] && { echo "-- $k --"; cat "$k" | grep -v '^|' | head -30; }
+      done
+    } > {{ results_dir.path }}/13_known_hosts.txt
+  changed_when: false
+
+- name: 14. KERNEL MODULES
+  shell: |
+    {
+      echo "=== Loaded modules ==="
+      lsmod | head -50
+      echo ""
+      echo "=== Modules lạ ==="
+      for m in $(lsmod | tail -n +2 | awk '{print $1}'); do
+        [ ! -f "/lib/modules/$(uname -r)/kernel/$m.ko" ] && [ ! -f "/lib/modules/$(uname -r)/kernel/$m.ko.xz" ] && echo "Module lạ: $m"
+      done
+    } > {{ results_dir.path }}/14_kernel.txt
+  changed_when: false
+
+- name: 15. /etc/hosts & DNS
+  shell: |
+    {
+      echo "=== /etc/hosts ==="
+      grep -v '^\s*#\|^\s*$' /etc/hosts
+      echo ""
+      echo "=== DNS ==="
+      cat /etc/resolv.conf | head -20
+    } > {{ results_dir.path }}/15_hosts.txt
+  changed_when: false
+
+- name: Log results location
+  debug:
+    msg: |
+      ✅ Quét hoàn thành: {{ inventory_hostname }}
+      📁 Kết quả: {{ results_dir.path }}
