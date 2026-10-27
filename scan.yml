@@ -21,11 +21,26 @@
       register: scan_result
       changed_when: false
 
-    - name: Fetch kết quả về controller
-      fetch:
-        src: "/tmp/hci_scan_{{ inventory_hostname }}_*/"
+    - name: Copy scan results to /tmp/ansible_results (dễ lấy)
+      shell: |
+        mkdir -p /tmp/ansible_results
+        SCAN_DIR=$(ls -td /tmp/hci_scan_* 2>/dev/null | head -1)
+        if [ -n "$SCAN_DIR" ]; then
+          cp -r "$SCAN_DIR"/* /tmp/ansible_results/ 2>/dev/null || true
+          echo "✅ Copied to /tmp/ansible_results"
+        else
+          echo "⚠️ No scan results found"
+        fi
+      changed_when: false
+      ignore_errors: yes
+
+    - name: Fetch từ /tmp/ansible_results
+      synchronize:
+        src: "/tmp/ansible_results/"
         dest: "{{ playbook_dir }}/results/{{ inventory_hostname }}/"
-        flat: no
+        mode: pull
+        delete: no
+        archive: yes
       ignore_errors: yes
 
     - name: Dọn dẹp thư mục tạm trên remote
