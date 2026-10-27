@@ -23,9 +23,15 @@
       echo ""
       echo "=== Updates chưa cài ==="
       apt-get -s upgrade 2>/dev/null | grep -E '^Inst ' | head -10
-    } > {{ results_path }}/1_patches.txt
+    } | tee {{ results_path }}/1_patches.txt
+  register: task1_out
   changed_when: false
   ignore_errors: yes
+
+- name: Show task 1 output
+  debug:
+    msg: "{{ task1_out.stdout_lines }}"
+  when: task1_out.stdout is defined
 
 - name: 2. ACCOUNTS
   raw: |
