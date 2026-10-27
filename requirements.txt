@@ -1,0 +1,3 @@
+ansible-core>=2.13,<2.16
+sshpass
+pyyaml

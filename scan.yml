@@ -1,0 +1,64 @@
+---
+# ======================================================================
+# scan.yml - Playbook chính: chạy quét HCI
+# Chạy: ansible-playbook scan.yml
+# ======================================================================
+
+- name: HCI Security Scan
+  hosts: hci
+  gather_facts: yes
+  tasks:
+    - name: Copy hci_scan.sh tới remote
+      copy:
+        src: hci_scan.sh
+        dest: /tmp/hci_scan.sh
+        mode: '0755'
+      register: script_copy
+
+    - name: Chạy quét
+      shell: bash /tmp/hci_scan.sh
+      timeout: "{{ hci_timeout }}"
+      register: scan_result
+      changed_when: false
+
+    - name: Fetch kết quả về controller
+      fetch:
+        src: "/tmp/hci_scan_{{ inventory_hostname }}_*/"
+        dest: "{{ playbook_dir }}/results/{{ inventory_hostname }}/"
+        flat: no
+      ignore_errors: yes
+
+    - name: Dọn dẹp thư mục tạm trên remote
+      shell: rm -rf /tmp/hci_scan_*
+      changed_when: false
+      ignore_errors: yes
+
+    - name: Log kết quả
+      debug:
+        msg: |
+          ✅ Quét hoàn thành: {{ inventory_hostname }}
+          Thư mục kết quả: /tmp/hci_scan_{{ inventory_hostname }}_*/
+
+# Tổng hợp kết quả trên controller
+- name: Summary
+  hosts: localhost
+  gather_facts: no
+  tasks:
+    - name: Tạo thư mục kết quả
+      file:
+        path: "{{ playbook_dir }}/results"
+        state: directory
+
+    - name: Liệt kê kết quả
+      shell: |
+        echo "=============== HCI SCAN RESULTS ==============="
+        find {{ playbook_dir }}/results -type f -name "*.txt" | head -50
+        echo ""
+        echo "📁 Kết quả lưu ở: {{ playbook_dir }}/results"
+        echo "📦 Để tar: tar -czf hci_scan_$(date +%Y%m%d_%H%M%S).tar.gz {{ playbook_dir }}/results"
+      register: summary
+      changed_when: false
+
+    - name: Hiển thị tóm tắt
+      debug:
+        msg: "{{ summary.stdout_lines }}"

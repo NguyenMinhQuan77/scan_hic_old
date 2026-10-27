@@ -1,0 +1,6 @@
+---
+# Tham số cho group [hci]
+hci_scan_script: "hci_scan.sh"
+hci_scan_dir: "/tmp/hci_scan"
+hci_results_dir: "/tmp/hci_scan_results"
+hci_timeout: 300  # 5 phút
