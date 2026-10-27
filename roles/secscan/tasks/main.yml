@@ -3,9 +3,12 @@
 # Role secscan - Quét bảo mật (không cần Python)
 # ======================================================================
 
+- name: Set results path
+  set_fact:
+    results_path: "/tmp/secscan_results_{{ inventory_hostname }}"
+
 - name: Create results directory
-  raw: mkdir -p /tmp/secscan_results_{{ inventory_hostname }}
-  register: results_dir
+  raw: mkdir -p {{ results_path }}
   changed_when: false
 
 - name: 1. PATCHES & KERNEL
@@ -19,7 +22,7 @@
       echo ""
       echo "=== Updates chưa cài ==="
       apt-get -s upgrade 2>/dev/null | grep -E '^Inst ' | head -10
-    } > {{ results_dir.path }}/1_patches.txt
+    } > {{ results_path }}/1_patches.txt
   changed_when: false
 
 - name: 2. ACCOUNTS
@@ -208,4 +211,4 @@
   debug:
     msg: |
       ✅ Quét hoàn thành: {{ inventory_hostname }}
-      📁 Kết quả: {{ results_dir.path }}
+      📁 Kết quả: {{ results_path }}
