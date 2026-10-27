@@ -6,7 +6,7 @@
 
 - name: HCI Security Scan
   hosts: hci
-  gather_facts: no
+  gather_facts: yes
   tasks:
     - name: Copy hci_scan.sh tới remote
       copy:
@@ -17,7 +17,6 @@
 
     - name: Chạy quét
       shell: bash /tmp/hci_scan.sh
-      timeout: "{{ hci_timeout }}"
       register: scan_result
       changed_when: false
 
