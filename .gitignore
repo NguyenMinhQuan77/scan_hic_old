@@ -1,0 +1,27 @@
+# Ansible
+*.retry
+*.pyc
+__pycache__/
+.ansible/
+
+# Scan results (không push lên git)
+results/
+/results/
+*.tar.gz
+hci_scan_results/
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+.DS_Store
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# Environment
+.env
+.env.local
